@@ -1,12 +1,34 @@
 """Lanza el programa en un runner nuevo usando el secreto MTU_ENV."""
 import io
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
 import tempfile
 
 from dotenv import dotenv_values
+from telegram_notify import Telegram, TelegramError
+
+
+def stream_process(command, root, bot):
+    notified = set()
+    failed_notice = False
+    with subprocess.Popen(command, cwd=root, stdin=subprocess.DEVNULL,
+                          stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                          text=True, encoding='utf-8', errors='replace', bufsize=1) as process:
+        for line in process.stdout:
+            print(line, end='', flush=True)
+            number = re.fullmatch(r'NÚMERO PARA MICROSOFT AUTHENTICATOR: ([0-9]{1,3})\s*', line)
+            if bot and number and number[1] not in notified:
+                notified.add(number[1])
+                try:
+                    bot.send('Número para Microsoft Authenticator: ' + number[1]
+                             + '\n\nAbre Authenticator e introduce este número para aprobar la ejecución de Horario MTU que acabas de iniciar. El reto caduca pronto.')
+                except TelegramError as exc:
+                    print(str(exc), flush=True)
+                    failed_notice = True
+        return process.wait(), failed_notice
 
 
 def mask(value):
@@ -29,6 +51,18 @@ def main():
         return 1
     root = Path(__file__).resolve().parents[1]
     out = root / 'salida'
+    bot = None
+    if os.environ.get('ENVIAR_TELEGRAM', 'false').lower() == 'true':
+        try:
+            bot = Telegram(os.environ.pop('TELEGRAM_BOT_TOKEN', ''), os.environ.pop('TELEGRAM_CHAT_ID', ''))
+            bot.verify_private_chat()
+            bot.send('Horario MTU: voy a iniciar sesión. Si Microsoft pide aprobación, te enviaré aquí el número de Authenticator.')
+        except TelegramError as exc:
+            print(str(exc), flush=True)
+            return 1
+    # El proceso del navegador no necesita las credenciales de Telegram.
+    os.environ.pop('TELEGRAM_BOT_TOKEN', None)
+    os.environ.pop('TELEGRAM_CHAT_ID', None)
     with tempfile.TemporaryDirectory(prefix='horario-mtu-', dir=os.environ.get('RUNNER_TEMP')) as tmp:
         private = Path(tmp)
         env_file = private / '.env'
@@ -42,8 +76,18 @@ def main():
         print('Abre este registro y espera a NÚMERO PARA MICROSOFT AUTHENTICATOR.', flush=True)
         print('Cuando aparezca, cambia a Authenticator y aprueba. El programa espera hasta 3 minutos.', flush=True)
         try:
-            result = subprocess.run(command, cwd=root, stdin=subprocess.DEVNULL, check=False)
-            return result.returncode
+            returncode, failed_notice = stream_process(command, root, bot)
+            if bot:
+                try:
+                    if (out / 'horario.txt').exists():
+                        bot.send((out / 'horario.txt').read_text(encoding='utf-8'))
+                        bot.document(out / 'horario.ics')
+                    if returncode:
+                        bot.send('La ejecución terminó con un error. Si ya recibiste el horario, el error ocurrió después de exportarlo. Consulta el resumen o registro de GitHub para ver el detalle.')
+                except TelegramError as exc:
+                    print(str(exc), flush=True)
+                    failed_notice = True
+            return returncode or (1 if failed_notice else 0)
         finally:
             summary = out / 'horario.txt'
             destination = os.environ.get('GITHUB_STEP_SUMMARY')

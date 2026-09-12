@@ -1,0 +1,29 @@
+name: Configurar Telegram
+
+on:
+  workflow_dispatch:
+    inputs:
+      codigo:
+        description: Código que enviaste a tu bot con /vincular (8 a 64 caracteres)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  configurar:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Encontrar mi chat privado
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          CODIGO_VINCULACION: ${{ inputs.codigo }}
+        run: python -u scripts/telegram_setup.py

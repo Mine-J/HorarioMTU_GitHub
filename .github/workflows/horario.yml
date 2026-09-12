@@ -3,6 +3,11 @@ name: Horario MTU
 on:
   workflow_dispatch:
     inputs:
+      enviar_telegram:
+        description: Recibir número de Authenticator y horario por Telegram
+        required: true
+        default: true
+        type: boolean
       enviar_correo:
         description: Enviar también por correo (requiere configurar SMTP en MTU_ENV)
         required: true
@@ -37,6 +42,9 @@ jobs:
       - name: Abrir este paso para ver el numero de Authenticator
         env:
           MTU_ENV: ${{ secrets.MTU_ENV }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          ENVIAR_TELEGRAM: ${{ inputs.enviar_telegram }}
           ENVIAR_CORREO: ${{ inputs.enviar_correo }}
           PYTHONUNBUFFERED: '1'
           PYTHONIOENCODING: utf-8

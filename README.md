@@ -1,3 +1,44 @@
+# Horario MTU con Telegram y GitHub Actions
+
+Esta versión envía a tu chat privado el número de Authenticator durante el inicio de sesión y el horario semanal con horario.ics al terminar. Tu PC puede estar apagado. La aprobación sigue realizándose en Microsoft Authenticator. El correo continúa disponible como opción adicional.
+
+## Actualizar el repositorio
+
+Descomprime este paquete y sustituye los archivos de tu repositorio con el contenido, conservando las rutas. Incluye **las dos tareas** `.github/workflows/horario.yml` y `.github/workflows/telegram.yml`, así como los tres archivos de `scripts/`. Guarda los cambios en la rama predeterminada, normalmente `main`.
+
+No subas solamente el ZIP. Si el cargador web omite `.github`, utiliza **Add file → Create new file** y escribe la ruta exacta de cada YAML antes de pegar su contenido. Si ya existe, edítalo y reemplaza su contenido.
+
+## Conectar tu bot, una vez
+
+1. En **Settings → Secrets and variables → Actions → New repository secret**, crea **TELEGRAM_BOT_TOKEN** y pega únicamente el token recibido de BotFather, sin comillas. Conserva tu secreto **MTU_ENV** con el contenido del `.env`.
+2. Abre **tu propio bot** en Telegram, pulsa **Iniciar** y envíale `/vincular ` seguido de un código que elijas de 8 a 64 letras, números, guiones o guiones bajos. Por ejemplo: `/vincular horario-7318-km`. Hazlo en el chat privado con tu bot, no en BotFather. El código sirve para identificar tu mensaje; no es el token de BotFather.
+3. En GitHub, abre **Actions → Configurar Telegram → Run workflow**. En **codigo**, escribe solo el código que elegiste (en el ejemplo, `horario-7318-km`) y ejecuta. No necesitas abrir los registros.
+4. El bot te enviará un mensaje con tu **TELEGRAM_CHAT_ID**. También aparecerá en el resumen de la ejecución terminada. Crea otro **Repository secret** llamado **TELEGRAM_CHAT_ID** y pega solo ese número, sin comillas.
+
+Deben quedar tres secretos: `MTU_ENV`, `TELEGRAM_BOT_TOKEN` y `TELEGRAM_CHAT_ID`. El programa del horario no se inicia durante la configuración de Telegram.
+
+La tarea busca un único chat privado que haya enviado ese código durante las últimas 24 horas. No elige simplemente al primer usuario del bot. Si no lo encuentra, envía un mensaje nuevo con otro código y vuelve a ejecutar la configuración. Usa un bot recién creado para este proyecto: un bot con un webhook o un proceso que ya consuma sus mensajes puede impedir esta búsqueda; el programa no modifica esas conexiones.
+
+## Cada vez que quieras el horario
+
+1. Desde Safari abre **Actions → Horario MTU → Run workflow**.
+2. Deja marcada **enviar_telegram** y deja desmarcada **enviar_correo** si no has configurado SMTP.
+3. Espera el mensaje del bot que anuncia el inicio de sesión. Puede tardar mientras GitHub prepara Python y Chromium.
+4. Si Microsoft pide aprobación, llegará otro mensaje con el **número para Authenticator**. Cambia a Microsoft Authenticator e introduce el número. Tienes hasta tres minutos de espera en el programa; el reto puede caducar antes. Las notificaciones pueden retrasarse según Telegram, tu conexión y los ajustes del iPhone.
+5. Al terminar recibirás el resumen semanal y el calendario `horario.ics`. Los mensajes largos se dividen en varias partes. Si ya había acceso y Microsoft no pide MFA, no se envía un número.
+
+El bot debe tener las notificaciones activadas para que puedas ver el aviso sin abrir Telegram. No responde a `/horario`: la ejecución se inicia con **Run workflow** en GitHub.
+
+Si falla Telegram antes del acceso, la tarea se detiene antes de iniciar sesión en MTU. Si falla una notificación después, conserva el número en los registros y los archivos del horario como artefactos; la tarea marca un error. Los envíos no se reintentan automáticamente para evitar duplicados.
+
+## Comprobaciones realizadas
+
+Se comprueban localmente la selección del chat, el envío simulado de mensajes y calendario, y la lectura del número mientras el proceso sigue ejecutándose. No se ha enviado ningún mensaje real ni se ha probado el acceso de tu cuenta desde GitHub. El bloqueo por políticas de MTU sigue siendo posible y esta integración no lo evita.
+
+[Documentación de Telegram Bot API](https://core.telegram.org/bots/api).
+
+---
+
 # Horario MTU desde GitHub y el iPhone
 
 GitHub ejecuta el programa y el navegador en un ordenador temporal. Tu PC puede estar apagado. El móvil sirve para lanzar la tarea, leer el número de Authenticator y aprobar el acceso. Al terminar puedes leer el horario en GitHub, descargarlo y, si configuras el correo, recibirlo por email.
