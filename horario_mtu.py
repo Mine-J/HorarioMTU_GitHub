@@ -130,6 +130,19 @@ def microsoft_login_origin(url: str) -> bool:
 
 
 def fill_mtu_login(page, credentials: dict, timeout_error) -> bool:
+    """Reintenta solo cambios de documento, manteniendo la cuenta introducida."""
+    for attempt in range(3):
+        try:
+            return _fill_mtu_login_once(page, credentials, timeout_error)
+        except Exception as exc:
+            if not is_navigation_interruption(exc) or attempt == 2:
+                raise
+            print("Microsoft ha cambiado de página durante el acceso; comprobando el siguiente paso...", flush=True)
+            page.wait_for_timeout(250)
+    return False
+
+
+def _fill_mtu_login_once(page, credentials: dict, timeout_error) -> bool:
     """Autorrelleno local de un único intento. La MFA se completa manualmente."""
     username = credentials.get("username", "")
     password = credentials.get("password", "")
@@ -144,7 +157,8 @@ def fill_mtu_login(page, credentials: dict, timeout_error) -> bool:
             return False
     if not microsoft_login_origin(page.url):
         return False
-    changed = False
+    changed = bool(credentials.get("_username_selected"))
+    credentials["_login_stage"] = "detectar el formulario o selector de cuenta"
     email_field = page.locator('input[name="loginfmt"][type="email"]')
     password_field = page.locator('input[name="passwd"][type="password"]')
     visible = page.locator(":visible")
@@ -161,9 +175,11 @@ def fill_mtu_login(page, credentials: dict, timeout_error) -> bool:
     if not microsoft_login_origin(page.url):
         return False
     if other_account.is_visible() and not email_field.is_visible() and not password_field.is_visible():
+        credentials["_login_stage"] = "seleccionar la cuenta"
         saved_account = page.get_by_text(re.compile(
             r"^\s*" + re.escape(username) + r"\s*$", re.I)).and_(visible)
         if saved_account.count() == 1:
+            credentials["_username_selected"] = True
             saved_account.click(timeout=15000)
             changed = True
             print("Cuenta del .env seleccionada automáticamente.")
@@ -176,12 +192,16 @@ def fill_mtu_login(page, credentials: dict, timeout_error) -> bool:
                 print("No ha aparecido el campo de correo después de elegir otra cuenta.")
                 return False
     if email_field.is_visible() and microsoft_login_origin(page.url):
+        credentials["_login_stage"] = "introducir el correo y pulsar Siguiente"
         email_field.fill(username)
+        credentials["_username_selected"] = True
         page.get_by_role("button", name=re.compile(r"^\s*(Next|Siguiente)\s*$", re.I)).click(timeout=15000)
         changed = True
         print("Usuario del .env enviado.")
     if not password:
         return changed
+    credentials["_login_stage"] = "esperar el campo de contraseña"
+    print("Esperando el campo de contraseña de Microsoft...", flush=True)
     try:
         password_field.wait_for(state="visible", timeout=15000)
     except timeout_error:
@@ -189,6 +209,7 @@ def fill_mtu_login(page, credentials: dict, timeout_error) -> bool:
         return changed
     if not microsoft_login_origin(page.url):
         return changed
+    credentials["_login_stage"] = "comprobar la cuenta del campo de contraseña"
     # Si acabamos de enviar el usuario, una etiqueta genérica es válida.
     # Si aparece otra cuenta explícita o no sabemos qué cuenta está seleccionada,
     # dejamos que el usuario la cambie antes de enviar la contraseña.
@@ -198,12 +219,43 @@ def fill_mtu_login(page, credentials: dict, timeout_error) -> bool:
     if (accounts and accounts != {username.casefold()}) or (not accounts and not changed):
         print("Selecciona la cuenta indicada en MTU_USERNAME en el navegador y vuelve a ejecutar login-mtu.")
         return changed
+    credentials["_login_stage"] = "rellenar la contraseña"
     password_field.fill(password)
+    credentials["_login_stage"] = "pulsar Iniciar sesión"
+    print("Contraseña rellenada. Pulsando Iniciar sesión...", flush=True)
     # Un clic explícito activa el botón de Microsoft aunque Enter no envíe el formulario.
     page.get_by_role("button", name=re.compile(
         r"^\s*(Sign in|Iniciar sesi[oó]n)\s*$", re.I)).click(timeout=15000)
     print("Contraseña del .env enviada. Esperando la respuesta de Microsoft.")
     return True
+
+
+def safe_login_diagnostic(page, exc, credentials):
+    """Solo etiquetas propias, códigos AADSTS y estados; no valores ni errores crudos."""
+    raw = str(exc).lower()
+    if is_navigation_interruption(exc):
+        reason = "cambio de documento durante la navegación"
+    elif "strict mode violation" in raw:
+        reason = "el selector coincide con varios elementos"
+    elif "timeout" in raw:
+        reason = "el elemento esperado no apareció o no se pudo pulsar a tiempo"
+    else:
+        reason = "error del navegador"
+    stage = credentials.get("_login_stage", "autorrellenar el acceso")
+    detail = f"No se pudo {stage}: {reason}."
+    try:
+        if microsoft_login_origin(page.url):
+            body = page.locator("body").inner_text(timeout=2000)
+            codes = sorted(set(re.findall(r"\bAADSTS\d{4,10}\b", body)))
+            if codes:
+                detail += " Microsoft muestra: " + ", ".join(codes) + "."
+            number_visible = page.locator("#idRichContext_DisplaySign:visible").count() > 0
+            detail += " Reto de número visible: " + ("sí." if number_visible else "no.")
+        else:
+            detail += " La página actual está fuera del formulario de Microsoft."
+    except Exception:
+        detail += " La página está cambiando; no se pudo consultar su estado."
+    return detail
 
 
 def is_navigation_interruption(exc: Exception) -> bool:
@@ -355,7 +407,9 @@ def fetch_timetable(cfg: dict, state: Path, interactive=False, login_only=False,
                     # Los errores de Playwright pueden incluir los argumentos de
                     # fill(). No se muestran para no revelar las credenciales.
                     filled = False
-                    print("No se ha completado el autorrelleno. Continúa manualmente en el navegador.")
+                    print("DIAGNÓSTICO DE ACCESO: " + safe_login_diagnostic(page, exc, credentials), flush=True)
+                    if not os.environ.get("GITHUB_ACTIONS"):
+                        print("Puedes continuar manualmente en la ventana del navegador.", flush=True)
                 finally:
                     credentials.clear()
                 stage = "esperar la confirmación del acceso"
@@ -938,7 +992,7 @@ def synchronize(events: list[dict], cfg: dict, state: Path, out: Path, apply=Fal
 
 
 def main():
-    print(f"HorarioMTU v10 | Archivo: {Path(__file__).resolve()}")
+    print(f"HorarioMTU v11 | Archivo: {Path(__file__).resolve()}")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["init", "crear-env", "login-mtu", "preview", "login-outlook", "sync"])
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))

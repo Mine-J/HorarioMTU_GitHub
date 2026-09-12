@@ -1,3 +1,19 @@
+## Actualización v11: diagnóstico del acceso y estado de Telegram
+
+Sustituye el contenido del repositorio con este paquete, incluida `.github/workflows/horario.yml` y todos los archivos de `scripts/`. No hace falta repetir Configurar Telegram ni cambiar los secretos si ya están guardados.
+
+Inicia una ejecución NUEVA en Actions → Horario MTU → Run workflow, con `enviar_telegram` marcado. No uses Re-run jobs de una ejecución antigua, que conserva la revisión anterior. Selecciona la rama donde hayas guardado estos cambios.
+
+El registro comienza por `Lanzador GitHub + Telegram v11`. Si está activado, muestra `Telegram activado` y luego `Telegram ha aceptado el aviso inicial`. Si aparece `Telegram DESACTIVADO`, la casilla estaba desmarcada. Si falta ENVIAR_TELEGRAM, el lanzador pide actualizar la tarea.
+
+La aceptación del mensaje por Telegram no garantiza que iOS muestre una notificación: comprueba el chat del bot y sus ajustes de notificaciones. Si no ves nada en ese chat, revisa que TELEGRAM_CHAT_ID sea el que recibiste de Configurar Telegram.
+
+El acceso a Microsoft ahora reintenta los cambios de documento durante el autorrelleno y conserva la cuenta ya elegida. Si el navegador falla en otro paso, se envía por Telegram un diagnóstico que indica el paso y cualquier código AADSTS visible, sin incluir contraseñas ni el texto completo de la página. Si falla antes de aparecer el reto MFA, todavía no habrá un número que enviar.
+
+Pruebas locales con simulaciones y procesos reales de prueba; pendiente comprobar el acceso de MTU en tu ejecución de GitHub.
+
+---
+
 # Horario MTU con Telegram y GitHub Actions
 
 Esta versión envía a tu chat privado el número de Authenticator durante el inicio de sesión y el horario semanal con horario.ics al terminar. Tu PC puede estar apagado. La aprobación sigue realizándose en Microsoft Authenticator. El correo continúa disponible como opción adicional.

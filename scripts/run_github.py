@@ -19,6 +19,12 @@ def stream_process(command, root, bot):
                           text=True, encoding='utf-8', errors='replace', bufsize=1) as process:
         for line in process.stdout:
             print(line, end='', flush=True)
+            if bot and line.startswith('DIAGNÓSTICO DE ACCESO: '):
+                try:
+                    bot.send('Horario MTU: problema durante el inicio de sesión.\n\n' + line.strip())
+                except TelegramError as exc:
+                    print(str(exc), flush=True)
+                    failed_notice = True
             number = re.fullmatch(r'NÚMERO PARA MICROSOFT AUTHENTICATOR: ([0-9]{1,3})\s*', line)
             if bot and number and number[1] not in notified:
                 notified.add(number[1])
@@ -38,6 +44,7 @@ def mask(value):
 
 
 def main():
+    print('Lanzador GitHub + Telegram v11', flush=True)
     contents = os.environ.pop('MTU_ENV', '')
     if not contents.strip():
         print('Falta el secreto MTU_ENV. Consulta README.md.', flush=True)
@@ -52,14 +59,22 @@ def main():
     root = Path(__file__).resolve().parents[1]
     out = root / 'salida'
     bot = None
-    if os.environ.get('ENVIAR_TELEGRAM', 'false').lower() == 'true':
+    telegram_flag = os.environ.get('ENVIAR_TELEGRAM', '').strip().lower()
+    if telegram_flag not in ('true', 'false'):
+        print('Falta ENVIAR_TELEGRAM en la tarea. Actualiza .github/workflows/horario.yml con el paquete v11.', flush=True)
+        return 1
+    if telegram_flag == 'true':
+        print('Telegram activado: comprobando el bot y el chat...', flush=True)
         try:
             bot = Telegram(os.environ.pop('TELEGRAM_BOT_TOKEN', ''), os.environ.pop('TELEGRAM_CHAT_ID', ''))
             bot.verify_private_chat()
             bot.send('Horario MTU: voy a iniciar sesión. Si Microsoft pide aprobación, te enviaré aquí el número de Authenticator.')
+            print('Telegram ha aceptado el aviso inicial. Revisa el chat del bot vinculado.', flush=True)
         except TelegramError as exc:
             print(str(exc), flush=True)
             return 1
+    else:
+        print('Telegram DESACTIVADO: marca enviar_telegram al pulsar Run workflow para recibir los avisos.', flush=True)
     # El proceso del navegador no necesita las credenciales de Telegram.
     os.environ.pop('TELEGRAM_BOT_TOKEN', None)
     os.environ.pop('TELEGRAM_CHAT_ID', None)
