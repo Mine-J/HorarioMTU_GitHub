@@ -1,0 +1,55 @@
+name: Horario MTU
+
+on:
+  workflow_dispatch:
+    inputs:
+      enviar_correo:
+        description: Enviar también por correo (requiere configurar SMTP en MTU_ENV)
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: read
+
+concurrency:
+  group: horario-mtu
+  cancel-in-progress: false
+
+jobs:
+  horario:
+    name: Consultar horario
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Instalar programa y navegador
+        run: |
+          python -m pip install -r requirements.txt
+          python -m playwright install --with-deps chromium
+          sudo apt-get update
+          sudo apt-get install -y xvfb xauth
+      - name: Abrir este paso para ver el numero de Authenticator
+        env:
+          MTU_ENV: ${{ secrets.MTU_ENV }}
+          ENVIAR_CORREO: ${{ inputs.enviar_correo }}
+          PYTHONUNBUFFERED: '1'
+          PYTHONIOENCODING: utf-8
+        run: python -u scripts/run_github.py
+      - name: Guardar horario para descargar
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v5
+        with:
+          name: horario-semanal
+          path: |
+            salida/horario.txt
+            salida/horario.ics
+            salida/clases.csv
+            salida/clases.json
+          if-no-files-found: ignore
+          retention-days: 7
