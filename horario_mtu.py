@@ -147,6 +147,7 @@ def _fill_mtu_login_once(page, credentials: dict, timeout_error) -> bool:
     username = credentials.get("username", "")
     password = credentials.get("password", "")
     if not username:
+        print("DIAGNÓSTICO DE ACCESO: falta MTU_USERNAME en el .env; no se puede elegir la cuenta automáticamente.", flush=True)
         return False
     if not microsoft_login_origin(page.url):
         try:
@@ -159,38 +160,60 @@ def _fill_mtu_login_once(page, credentials: dict, timeout_error) -> bool:
         return False
     changed = bool(credentials.get("_username_selected"))
     credentials["_login_stage"] = "detectar el formulario o selector de cuenta"
-    email_field = page.locator('input[name="loginfmt"][type="email"]')
-    password_field = page.locator('input[name="passwd"][type="password"]')
+    email_field = page.locator('input[name="loginfmt"][type="email"]:visible')
+    password_field = page.locator('input[name="passwd"][type="password"]:visible')
     visible = page.locator(":visible")
     other_account = page.get_by_text(re.compile(
         r"^\s*(Usar otra cuenta|Use another account)\s*$", re.I)).and_(visible)
+    # La tarjeta puede añadir un estado al correo o repetirlo en varios nodos.
+    # Reconocer el correo completo sin aceptar direcciones que solo lo contienen.
+    address_chars = r"\w.!#$%&'*+/=?^`{|}~@-"
+    account_pattern = re.compile(
+        rf"(?<![{address_chars}]){re.escape(username)}(?![{address_chars}])", re.I)
+    account_buttons = page.get_by_role("button", name=account_pattern).and_(visible)
+    account_text = page.get_by_text(account_pattern).and_(visible)
+    saved_account = account_buttons.or_(account_text)
     # Microsoft puede abrir el formulario o el selector de cuentas recordadas.
     # Esperamos cualquiera de las tres pantallas, también si tarda en cargar.
     try:
-        email_field.or_(password_field).or_(other_account).and_(visible).first.wait_for(
-            state="visible", timeout=15000)
+        email_field.or_(password_field).or_(other_account).or_(saved_account).and_(visible).first.wait_for(
+            state="visible", timeout=30000)
     except timeout_error:
         print("No se ha encontrado el formulario ni el selector de cuentas de Microsoft.")
         return False
     if not microsoft_login_origin(page.url):
         return False
-    if other_account.is_visible() and not email_field.is_visible() and not password_field.is_visible():
+    if not email_field.is_visible() and not password_field.is_visible():
         credentials["_login_stage"] = "seleccionar la cuenta"
-        saved_account = page.get_by_text(re.compile(
-            r"^\s*" + re.escape(username) + r"\s*$", re.I)).and_(visible)
-        if saved_account.count() == 1:
+        if saved_account.count() > 0:
+            # Preferir el botón de la tarjeta si tiene ese rol; en su defecto,
+            # pulsar el texto visible del correo activa su contenedor.
+            target = account_buttons.first if account_buttons.count() else account_text.first
             credentials["_username_selected"] = True
-            saved_account.click(timeout=15000)
+            print("Cuenta del .env encontrada. Pulsando su tarjeta...", flush=True)
+            target.click(timeout=15000)
             changed = True
             print("Cuenta del .env seleccionada automáticamente.")
-        else:
-            other_account.click(timeout=15000)
+        elif other_account.count() > 0:
+            other_account.first.click(timeout=15000)
             print("Abriendo 'Usar otra cuenta' para introducir el usuario del .env.")
-            try:
-                email_field.wait_for(state="visible", timeout=15000)
-            except timeout_error:
-                print("No ha aparecido el campo de correo después de elegir otra cuenta.")
-                return False
+        else:
+            print("DIAGNÓSTICO DE ACCESO: no se encontró la tarjeta del correo del .env ni Usar otra cuenta.", flush=True)
+            return False
+        credentials["_login_stage"] = "esperar la pantalla posterior a seleccionar la cuenta"
+        # No consultar el siguiente formulario antes de que termine de aparecer.
+        page.wait_for_function("""() => {
+            const visible = s => [...document.querySelectorAll(s)]
+                .some(e => e.getClientRects().length && getComputedStyle(e).visibility !== 'hidden');
+            return location.hostname !== 'login.microsoftonline.com'
+                || visible('input[name="loginfmt"][type="email"]')
+                || visible('input[name="passwd"][type="password"]')
+                || visible('#idRichContext_DisplaySign');
+        }""", timeout=30000)
+        if not microsoft_login_origin(page.url):
+            return changed
+        if page.locator('#idRichContext_DisplaySign:visible').count():
+            return True
     if email_field.is_visible() and microsoft_login_origin(page.url):
         credentials["_login_stage"] = "introducir el correo y pulsar Siguiente"
         email_field.fill(username)
@@ -996,7 +1019,7 @@ def synchronize(events: list[dict], cfg: dict, state: Path, out: Path, apply=Fal
 
 
 def main():
-    print(f"HorarioMTU v12 | Todas las clases visibles, ignorando sus semanas | Archivo: {Path(__file__).resolve()}")
+    print(f"HorarioMTU v13 | Selector de cuenta actualizado; todas las clases visibles | Archivo: {Path(__file__).resolve()}")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["init", "crear-env", "login-mtu", "preview", "login-outlook", "sync"])
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))
