@@ -518,7 +518,11 @@ def fetch_timetable(cfg: dict, state: Path, interactive=False, login_only=False,
 
 
 def parse_timetable(raw: dict) -> list[dict]:
-    """Reconstruye colspan/rowspan y expande solamente las semanas indicadas."""
+    """Incluye todas las clases visibles en cada semana del semestre.
+
+    Las anotaciones de semanas de cada clase se ignoran por elección del
+    usuario. La vista previa sigue filtrando la semana que corresponda.
+    """
     if raw.get("schema") != 1 or len(raw.get("grids", [])) != 1:
         raise TimetableError("Se esperaba una única tabla de horario completa.")
     year = raw["academic_year_start"]
@@ -568,15 +572,15 @@ def parse_timetable(raw: dict) -> list[dict]:
             if col == 0 or not cell["text"].strip():
                 continue
             parts = cell.get("parts", [])
-            if len(parts) != 3 or len(parts[0]) != 1 or len(parts[0][0]) != 2:
+            if len(parts) not in (2, 3) or len(parts[0]) != 1 or len(parts[0][0]) != 2:
                 raise TimetableError(f"Formato de clase no reconocido: {cell['text']}")
             room, kind = parts[0][0]
-            if len(parts[1]) != 1 or len(parts[1][0]) != 1 or len(parts[2]) != 1 or len(parts[2][0]) != 1:
+            if len(parts[1]) != 1 or len(parts[1][0]) != 1:
                 raise TimetableError("La estructura interna de una clase ha cambiado.")
-            subject, weeks_text = parts[1][0][0], parts[2][0][0]
-            weeks = week_dates(weeks_text, year)
-            if not weeks <= allowed:
-                raise TimetableError("Una clase contiene semanas fuera del semestre seleccionado.")
+            subject = parts[1][0][0]
+            # Si la clase aparece en la tabla, se incluye aunque su texto
+            # de semanas esté vacío, ausente o indique fechas diferentes.
+            weeks = allowed
             start_minutes = 480+(col-1)*15
             end_minutes = start_minutes+cell["colspan"]*15
             if not subject or not kind or not (480 <= start_minutes < end_minutes <= 1320):
@@ -992,7 +996,7 @@ def synchronize(events: list[dict], cfg: dict, state: Path, out: Path, apply=Fal
 
 
 def main():
-    print(f"HorarioMTU v11 | Archivo: {Path(__file__).resolve()}")
+    print(f"HorarioMTU v12 | Todas las clases visibles, ignorando sus semanas | Archivo: {Path(__file__).resolve()}")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=["init", "crear-env", "login-mtu", "preview", "login-outlook", "sync"])
     parser.add_argument("--config", type=Path, default=Path(__file__).with_name("config.json"))
