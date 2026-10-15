@@ -246,10 +246,21 @@ def _fill_mtu_login_once(page, credentials: dict, timeout_error) -> bool:
     password_field.fill(password)
     credentials["_login_stage"] = "pulsar Iniciar sesión"
     print("Contraseña rellenada. Pulsando Iniciar sesión...", flush=True)
-    # Un clic explícito activa el botón de Microsoft aunque Enter no envíe el formulario.
-    page.get_by_role("button", name=re.compile(
-        r"^\s*(Sign in|Iniciar sesi[oó]n)\s*$", re.I)).click(timeout=15000)
-    print("Contraseña del .env enviada. Esperando la respuesta de Microsoft.")
+    # Buscar el botón de inicio de sesión de Microsoft
+    login_button = page.locator(
+        'input[type="submit"], '
+        'button[type="submit"], '
+        '#idSIButton9'
+    ).filter(visible=True)
+
+    if login_button.count() > 0:
+        print("Botón de inicio de sesión encontrado.", flush=True)
+        login_button.first.click(timeout=30000)
+    else:
+        print("No se encontró el botón. Probando Enter...", flush=True)
+        password_field.press("Enter", timeout=15000)
+
+    print("Inicio de sesión enviado. Esperando respuesta de Microsoft.", flush=True)
     return True
 
 
